@@ -34,9 +34,13 @@ class Statistics(webapp.RequestHandler):
         self.response.out.write(json.dumps(memcache.get_stats()))
 
 
-def data_to_event(title, genus, d, link):
+def data_to_event(genus, title, d, link):
     event = Event()
-    event.add('summary', title)
+    if "in the park" in genus.lower():
+        event.add('summary', "park movie: " + title)
+    else:
+        event.add('summary', "Enzian: " + title)
+
     event.add('description', genus)
     event.add('dtstamp', datetime.now())  # todo: make this the modtime of page
 
@@ -71,8 +75,8 @@ class EventsListingCal(webapp.RequestHandler):
         cal.add('version', '2.0')
         cal.add('prodid', '-//Enzian Specials by Chad//NONSCML//EN')
         cal.add('X-WR-CALID', 'dc7c97b1-951d-404f-ab20-3abcf10ad038')
-        cal.add('X-WR-CALNAME', 'Enzian specials by Chad')
-        cal.add('X-WR-CALDESC', "Enzian doesn't make calendars only for meat puppets.  Chad ( http://web.chad.org/ ) makes computers understand them.  Enjoy!")
+        cal.add('X-WR-CALNAME', 'Enzian specials')
+        cal.add('X-WR-CALDESC', "Enzian makes calendars only for eyeballs.  Chad ( http://web.chad.org/ ) makes computers understand them.!")
         cal.add('X-WR-TIMEZONE', 'US/Eastern')
         page = urllib.urlopen("http://www.enzian.org/film/whats_playing/").read()
         soup = BeautifulSoup(page)
@@ -93,7 +97,7 @@ class EventsListingCal(webapp.RequestHandler):
 
         self.response.out.write(cal.as_string())
         for retry in range(3):
-            if not memcache.add("enzian-calendar", cal.as_string(), 60*60*1):
+            if not memcache.add("enzian-calendar", cal.as_string(), 60*60*4):
                 logging.warn("Failed to add data to Memcache.")
                 time.sleep(0.5)
             else:
@@ -104,6 +108,7 @@ class EventsListingCal(webapp.RequestHandler):
 application = webapp.WSGIApplication(
         [
             ('/shows.ics', EventsListingCal),
+            ('/showtimes.ics', EventsListingCal),
             ('/', EventsListingCal),
             ('/statistics', Statistics),
             ('/about', About)
