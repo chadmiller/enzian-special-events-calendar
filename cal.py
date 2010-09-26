@@ -34,76 +34,22 @@ class Statistics(webapp.RequestHandler):
         self.response.out.write(json.dumps(memcache.get_stats()))
 
 
-def all_strings(e, n=0):
-    if isinstance(e, NavigableString):
-        return e.string
-    else:
-        combined = list()
-        for sub in e.contents:
-            combined.append(all_strings(sub, n+1))
-        return "".join(combined)
-
-def interpret_date(data):
-    if data.get("year") is None:
-        raise ValueError("no data")
-
-    if "Launch Time" in data:
-        timezone = data["Launch Time"].split()[-1]
-        if timezone == "EDT":
-            pass
-        elif timezone == "EST":
-            pass
-        else:
-            raise ValueError("tz is " + repr(timezone))
-
-        time = "%s %s %04d" % (" ".join(data["Launch Time"].replace(".", "").upper().split()[:-1]), data["Date"].strip(" +*").replace(".", "").replace("Sept", "Sep"), data["year"])
-        try:
-            d = datetime.strptime(time, "%I:%M %p %b %d %Y")
-        except ValueError:
-            d = datetime.strptime(time, "%I:%M %p %B %d %Y")
-
-    else:
-        time = "%s %04d" % (data["Date"].strip(" +*").replace(".", "").replace("Sept", "Sep"), data["year"])
-        try:
-            d = datetime.strptime(time, "%b %d %Y").date()
-        except ValueError:
-            try:
-                d = datetime.strptime(time, "%B %d %Y").date()
-            except ValueError, e:
-                self.response.out.write(str(e))
-                return
-        
-    return d
-
-def data_to_event(data):
-    if "Date" not in data:
-        logging.info("no date in %r" % (data,))
-        return
-
-    try:
-        d = interpret_date(data)
-    except ValueError, e:
-        logging.warn("%s  Skipping %s" % (e, data,))
-        return
-
-    assert isinstance(d, datetime) or isinstance(d, date), d
-
-    description_key = [dk for dk in data.keys() if dk.endswith("Description")][0]
-
+def data_to_event(title, genus, d, link):
     event = Event()
-    event.add('summary', "%s launch from %s" % (data.get("Mission", "(?)"), data.get("Launch Site", "")))
-    event.add('description', data.get(description_key))
+    event.add('summary', title)
+    event.add('description', genus)
     event.add('dtstamp', datetime.now())  # todo: make this the modtime of page
+
     if type(d) == datetime:
         event.add('dtstart', d)
     else:
         event.add('dtstart;value=date', icalendar.vDate(d).ical())
 
     if type(d) == datetime:
-        event.add('dtend', d + timedelta(minutes=10))
+        event.add('dtend', d + timedelta(minutes=120))
     else:
         event.add('dtend;value=date', icalendar.vDate(d).ical())
-    event["uid"] = "%s@launches.ksc.nasa.gov" % (data.get("Mission", "MISSION").replace(" ", "-").lower(),)
+    event["uid"] = link
     return event
     
 
@@ -116,59 +62,38 @@ class EventsListingCal(webapp.RequestHandler):
     def get(self):
         self.response.headers['Content-Type'] = 'text/calendar'
 
-        calendar = memcache.get("ksc-calendar")
+        calendar = memcache.get("enzian-calendar")
         if calendar:
             self.response.out.write(calendar)
             return
 
         cal = Calendar()
         cal.add('version', '2.0')
-        cal.add('prodid', '-//Kennedy Space Center launches by Chad//NONSCML//EN')
-        cal.add('X-WR-CALID', '8293bcab-1b27-44dd-8a3c-2bb045888629')
-        cal.add('X-WR-CALNAME', 'KSC launches by Chad')
-        cal.add('X-WR-CALDESC', "NASA publishes a web page of scheduled launches, but an iCalendar/RFC5545 feed would be so much better and useful.  So, ( http://web.chad.org/ ) Chad made one.  Enjoy!")
+        cal.add('prodid', '-//Enzian Specials by Chad//NONSCML//EN')
+        cal.add('X-WR-CALID', 'dc7c97b1-951d-404f-ab20-3abcf10ad038')
+        cal.add('X-WR-CALNAME', 'Enzian specials by Chad')
+        cal.add('X-WR-CALDESC', "Enzian doesn't make calendars only for meat puppets.  Chad ( http://web.chad.org/ ) makes computers understand them.  Enjoy!")
         cal.add('X-WR-TIMEZONE', 'US/Eastern')
-        nasa_html = urllib.urlopen("http://www.nasa.gov/missions/highlights/schedule.html").read()
-        doc = BeautifulSoup(nasa_html).find("div", {"class": "white_article_wrap_detail text_adjust_me"})
+        page = urllib.urlopen("http://www.enzian.org/film/whats_playing/").read()
+        soup = BeautifulSoup(page)
 
-        year = None
-        data = { "year": year }
-        for sib in doc.findAll(recursive=False)[0].findAll(recursive=False):
-            if sib.name == "center":
-                year = int(sib.b.text.split(" ")[0])
-                data["year"] = year
-            elif sib.name == "b":
-                key = sib.text.strip(" :").encode("utf8")
-                value = all_strings(sib.nextSibling).strip().encode("utf8")
-                if value == "":
-                    value = all_strings(sib.nextSibling.nextSibling).strip().encode("utf8")
-                    if value.endswith("-"):
-                        value += " "
-                        value += all_strings(sib.nextSibling.nextSibling.nextSibling).strip().encode("utf8")
-
-# Legend: + Targeted For | * No Earlier Than (Tentative) | ** To Be Determined 
-                if key == "Date" and "**" in value:
-                    logging.info("Date is TBD  %r" % (value,))
-                    continue
-                    
-                data[key] = value
-            elif sib.name == "br":
-                if not isinstance(sib.nextSibling, NavigableString) and sib.nextSibling.name == "br":
-
-                    e = data_to_event(data)
-                    if e:
-                        cal.add_component(e)
-                    data = { "year": year }
-            else:
-                pass
+        for summary in soup.fetch("ul", attrs={"class":"movieSummary"}):
+            for item in summary.fetch("li"):
+                genus, title, t_desc, link = item.h3.contents[0], item.h4.contents[0], item.h5.contents[0], item.a["href"]
+                t_desc = t_desc.replace("th,", ",").replace("rd,", ",").replace("nd,", ",").replace("st,", ",")
+                if genus not in ("Special Programs", "Cult Classics", "Popcorn Flicks in the Park"): continue
+                now = datetime.now()
+                t = datetime.strptime(t_desc, "%B %d, %I:%M%p").replace(now.year)
+                if now > (t + timedelta(days=7)):
+                    t = t.replace(now.year + 1)
         
-        e = data_to_event(data)
-        if e:
-            cal.add_component(e)
+                e = data_to_event(genus, title, t, link)
+                if e:
+                    cal.add_component(e)
 
         self.response.out.write(cal.as_string())
         for retry in range(3):
-            if not memcache.add("ksc-calendar", cal.as_string(), 60*5):
+            if not memcache.add("enzian-calendar", cal.as_string(), 60*60*1):
                 logging.warn("Failed to add data to Memcache.")
                 time.sleep(0.5)
             else:
@@ -178,7 +103,7 @@ class EventsListingCal(webapp.RequestHandler):
 
 application = webapp.WSGIApplication(
         [
-            ('/ksc-launches.ics', EventsListingCal),
+            ('/shows.ics', EventsListingCal),
             ('/', EventsListingCal),
             ('/statistics', Statistics),
             ('/about', About)
