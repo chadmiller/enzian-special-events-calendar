@@ -1,0 +1,4 @@
+cron:
+- description: precaching
+  url: /shows.ics
+  schedule: every 90 minutes
