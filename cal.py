@@ -64,7 +64,7 @@ class EventsListingCal(webapp.RequestHandler):
 
 
     def get(self):
-        self.response.headers['Content-Type'] = 'text/calendar'
+        self.response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
 
         calendar = memcache.get("enzian-calendar")
         if calendar:
@@ -79,7 +79,7 @@ class EventsListingCal(webapp.RequestHandler):
         cal.add('X-WR-CALDESC', "Enzian makes calendars only for eyeballs.  Chad ( http://web.chad.org/ ) makes computers understand them.!")
         cal.add('X-WR-TIMEZONE', 'US/Eastern')
         page = urllib.urlopen("http://www.enzian.org/film/whats_playing/").read()
-        soup = BeautifulSoup(page)
+        soup = BeautifulSoup(page, convertEntities=BeautifulSoup.HTML_ENTITIES)
 
         for summary in soup.fetch("ul", attrs={"class":"movieSummary"}):
             for item in summary.fetch("li"):
