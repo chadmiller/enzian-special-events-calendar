@@ -5,7 +5,7 @@ from google.appengine.api import memcache
 
 from icalendar import Event, Calendar
 
-import urllib
+import urllib2
 import logging
 try:
     from django.utils import simplejson as json
@@ -66,7 +66,8 @@ class EventsListingCal(webapp.RequestHandler):
     def get(self):
         self.response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
 
-        calendar = memcache.get("enzian-calendar")
+        show_all = "-all" if self.request.get("all") else ""
+        calendar = memcache.get("enzian-calendar" + show_all)
         if calendar:
             self.response.out.write(calendar)
             return
@@ -76,18 +77,28 @@ class EventsListingCal(webapp.RequestHandler):
         cal.add('prodid', '-//Enzian Specials by Chad//NONSCML//EN')
         cal.add('X-WR-CALID', 'dc7c97b1-951d-404f-ab20-3abcf10ad038')
         cal.add('X-WR-CALNAME', 'Enzian specials')
-        cal.add('X-WR-CALDESC', "Enzian makes calendars only for eyeballs.  Chad ( http://web.chad.org/ ) makes computers understand them.!")
+        cal.add('X-WR-CALDESC', "Enzian makes calendars only for eyeballs.  Chad ( http://web.chad.org/ ) makes computers understand them.")
         cal.add('X-WR-TIMEZONE', 'US/Eastern')
-        page = urllib.urlopen("http://www.enzian.org/film/whats_playing/").read()
+        page = urllib2.urlopen("http://www.enzian.org/film/whats_playing/").read()
         soup = BeautifulSoup(page, convertEntities=BeautifulSoup.HTML_ENTITIES)
 
         for summary in soup.fetch("ul", attrs={"class":"movieSummary"}):
             for item in summary.fetch("li"):
                 genus, title, t_desc, link = item.h3.contents[0], item.h4.contents[0], item.h5.contents[0], item.a["href"]
                 t_desc = t_desc.replace("th,", ",").replace("rd,", ",").replace("nd,", ",").replace("st,", ",")
-                if genus not in ("Special Programs", "Cult Classics", "Popcorn Flicks in the Park"): continue
+
+                if not show_all and genus in set(("Feature Film", "Ballet on the Big Screen", "FilmSlam", "Opera on the Big Screen")):
+                    continue
+
+                if genus not in ("Special Programs", "Cult Classics", "Popcorn Flicks in the Park", "Wednesday Night Pitcher Show", "Saturday Matinee Classics", "KidFest"):
+                    logging.info("including questionable %r", genus)
+
                 now = datetime.now()
-                t = datetime.strptime(t_desc, "%B %d, %I:%M%p").replace(now.year)
+                try:
+                    t = datetime.strptime(t_desc, "%B %d, %I:%M%p").replace(now.year)
+                except ValueError:
+                    logging.warn("bad date %r", t_desc)
+                    continue
                 if now > (t + timedelta(days=7)):
                     t = t.replace(now.year + 1)
         
@@ -96,10 +107,10 @@ class EventsListingCal(webapp.RequestHandler):
                     cal.add_component(e)
 
         self.response.out.write(cal.as_string())
-        for retry in range(3):
-            if not memcache.add("enzian-calendar", cal.as_string(), 60*60*4):
-                logging.warn("Failed to add data to Memcache.")
-                time.sleep(0.5)
+        for retry in range(10):
+            if not memcache.add("enzian-calendar" + show_all, cal.as_string(), 60*60*4):
+                logging.warn("Failed to add data %r to Memcache.", "enzian-calendar-" + show_all)
+                time.sleep(0.1)
             else:
                 break
 
