@@ -59,10 +59,6 @@ def data_to_event(genus, title, d, link):
 
 class EventsListingCal(webapp.RequestHandler):
 
-    def __init__(self):
-        super(EventsListingCal, self).__init__()
-
-
     def get(self):
         self.response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
 
@@ -116,7 +112,7 @@ class EventsListingCal(webapp.RequestHandler):
 
         
 
-application = webapp.WSGIApplication(
+app = webapp.WSGIApplication(
         [
             ('/shows.ics', EventsListingCal),
             ('/showtimes.ics', EventsListingCal),
@@ -124,9 +120,3 @@ application = webapp.WSGIApplication(
             ('/statistics', Statistics),
             ('/about', About)
         ], debug=True)
-
-def main():
-    run_wsgi_app(application)
-
-if __name__ == "__main__":
-    main()
