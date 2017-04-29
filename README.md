@@ -1,2 +1,2 @@
 
-https://ksc-launches-hrd.appspot.com
+https://enzian-specials-hrd.appspot.com
